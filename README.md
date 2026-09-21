@@ -70,6 +70,8 @@ hadoop / spark / mongo
 spark/
   Dockerfile              sbt builder image (compiles the job in a container)
   build.sbt               Scala 2.12, Spark 3.5.1 + mongo-spark-connector
+  lib/                    MongoDB connector jars (downloaded by make train,
+                          gitignored)
   src/main/scala/cinematch/Recommender.scala   the training job
 hive/
   init/01_tables.hql      external tables over the CSVs in HDFS
@@ -121,6 +123,10 @@ Hive reads the *same* raw CSVs through external tables (header line skipped,
 - **`make train` recompiles from zero** - the sbt cache lives in Docker
   volumes (`sbt_cache`, `ivy_cache`, `coursier_cache`); `make clean` removes
   them, `make down` keeps them.
+- **`make train` fails resolving `mongodb-driver-sync`** - the job no longer
+  uses `--packages`: `scripts/train.sh` downloads the five connector jars to
+  `spark/lib/` once (from the host, retried on failure) and submits with
+  `--jars`, so training never resolves dependencies inside the container.
 - **Web shows "No recommendations yet"** - run `make train` first.
 - **HDFS won't leave safemode** - check `docker compose logs datanode`; the
   DataNode must register within a few minutes of the NameNode starting.

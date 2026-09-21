@@ -9,6 +9,9 @@ if [ ! -f "$JAR" ]; then
   exit 1
 fi
 
+echo ">> Fetching MongoDB connector jars (cached in spark/lib/)..."
+bash scripts/fetch_mongo_jars.sh
+
 echo ">> Waiting for MongoDB..."
 for i in $(seq 1 30); do
   if docker compose exec -T mongo mongosh --quiet --eval 'db.adminCommand({ping: 1})' >/dev/null 2>&1; then
@@ -29,9 +32,8 @@ docker compose exec -T spark-master /opt/spark/bin/spark-submit \
   --conf spark.executor.memory=1g \
   --conf spark.driver.memory=1g \
   --conf spark.sql.shuffle.partitions=8 \
-  --conf spark.jars.ivy=/tmp/.ivy2 \
   --conf spark.mongodb.write.connection.uri=mongodb://mongo:27017/cinematch \
-  --packages org.mongodb.spark:mongo-spark-connector_2.12:10.4.0 \
+  --jars /spark/lib/mongo-spark-connector_2.12-10.4.0.jar,/spark/lib/mongodb-driver-sync-5.1.1.jar,/spark/lib/mongodb-driver-core-5.1.1.jar,/spark/lib/bson-5.1.1.jar,/spark/lib/bson-record-codec-5.1.1.jar \
   /spark/target/scala-2.12/cinematch_2.12-1.0.0.jar
 
 echo ">> Copying RMSE from HDFS to ./report/rmse.txt"

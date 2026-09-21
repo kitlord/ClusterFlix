@@ -6,6 +6,7 @@ report/
 
 # Scala build output
 spark/target/
+spark/lib/
 spark/project/target/
 spark/project/project/
 spark/.bloop/

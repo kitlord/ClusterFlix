@@ -58,10 +58,13 @@ object Recommender {
         .evaluate(model.transform(test))
       println(f"[CineMatch] test RMSE = $rmse%.4f")
 
-      spark.sparkContext
-        .parallelize(Seq(f"test RMSE = $rmse%.4f"))
+      // single text file, safe to re-run (overwrite instead of saveAsTextFile)
+      Seq(f"test RMSE = $rmse%.4f")
+        .toDF("rmse")
         .coalesce(1)
-        .saveAsTextFile(s"$HdfsUrl/output/rmse")
+        .write
+        .mode("overwrite")
+        .text(s"$HdfsUrl/output/rmse")
 
       // ---------------- 2. top-10 recommendations per user ----------------
       val movies = spark.read
