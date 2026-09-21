@@ -1,0 +1,159 @@
+name: cinematch
+
+services:
+  # ---------------------------------------------------------------- HDFS ----
+  namenode:
+    image: apache/hadoop:3.3.6
+    hostname: namenode
+    user: root
+    command: ["hdfs", "namenode"]
+    ports:
+      - "9870:9870"                       # NameNode web UI
+    environment:
+      ENSURE_NAMENODE_DIR: "/tmp/hadoop-root/dfs/name"
+      CORE-SITE.XML_fs.defaultFS: hdfs://namenode:9000
+      CORE-SITE.XML_hadoop.tmp.dir: /tmp/hadoop-root
+      HDFS-SITE.XML_dfs.replication: "1"
+      HDFS-SITE.XML_dfs.permissions.enabled: "false"
+      HDFS-SITE.XML_dfs.namenode.datanode.registration.ip-hostname-check: "false"
+      HDFS-SITE.XML_dfs.client.use.datanode.hostname: "true"
+    volumes:
+      - namenode_data:/tmp/hadoop-root
+      - ./data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "hdfs dfsadmin -safemode get"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 30s
+
+  datanode:
+    image: apache/hadoop:3.3.6
+    hostname: datanode
+    user: root
+    command: ["hdfs", "datanode"]
+    environment:
+      CORE-SITE.XML_fs.defaultFS: hdfs://namenode:9000
+      CORE-SITE.XML_hadoop.tmp.dir: /tmp/hadoop-root
+      HDFS-SITE.XML_dfs.replication: "1"
+      HDFS-SITE.XML_dfs.permissions.enabled: "false"
+      HDFS-SITE.XML_dfs.namenode.datanode.registration.ip-hostname-check: "false"
+      HDFS-SITE.XML_dfs.client.use.datanode.hostname: "true"
+    volumes:
+      - datanode_data:/tmp/hadoop-root
+    depends_on:
+      namenode:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "hdfs dfs -test -e /"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 40s
+
+  # --------------------------------------------------------------- Spark ----
+  spark-master:
+    image: apache/spark:3.5.1
+    hostname: spark-master
+    command:
+      - /opt/spark/bin/spark-class
+      - org.apache.spark.deploy.master.Master
+      - --host
+      - spark-master
+      - --port
+      - "7077"
+      - --webui-port
+      - "8080"
+    ports:
+      - "8080:8080"                       # Spark master web UI
+    volumes:
+      - ./spark:/spark:ro
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/spark-master/7077'"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 15s
+
+  spark-worker:
+    image: apache/spark:3.5.1
+    hostname: spark-worker
+    command:
+      - /opt/spark/bin/spark-class
+      - org.apache.spark.deploy.worker.Worker
+      - --cores
+      - "2"
+      - --memory
+      - 3g
+      - spark://spark-master:7077
+    depends_on:
+      spark-master:
+        condition: service_healthy
+
+  # ------------------------------------------------------- MongoDB ----------
+  mongo:
+    image: mongo:7
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --eval 'db.adminCommand({ping: 1}).ok' | grep -q 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
+
+  # ---------------------------------------------------------------- Hive ----
+  # Long-lived container; queries run via `docker compose exec hive hive ...`
+  # with an embedded Derby metastore persisted in the hive_data volume.
+  hive:
+    image: apache/hive:3.1.3
+    hostname: hive
+    user: root
+    entrypoint: ["sleep", "infinity"]
+    working_dir: /data/hive
+    volumes:
+      - hive_data:/data/hive
+      - ./hive:/hive:ro
+      - ./report:/report
+    depends_on:
+      datanode:
+        condition: service_healthy
+
+  # ------------------------------------------------- Scala build (sbt) ------
+  # One-off builder: `docker compose run --rm scala-build`
+  scala-build:
+    build:
+      context: ./spark
+      dockerfile: Dockerfile
+    working_dir: /work
+    volumes:
+      - ./spark:/work
+      - sbt_cache:/root/.sbt
+      - ivy_cache:/root/.ivy2
+      - coursier_cache:/root/.cache
+    environment:
+      BUILD_UID: ${BUILD_UID:-1000}
+      BUILD_GID: ${BUILD_GID:-1000}
+
+  # ------------------------------------------------------------ Flask web ---
+  web:
+    build: ./web
+    ports:
+      - "5000:5000"
+    environment:
+      MONGO_URI: mongodb://mongo:27017
+      REPORT_DIR: /report
+    volumes:
+      - ./report:/report:ro
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+volumes:
+  namenode_data:
+  datanode_data:
+  mongo_data:
+  hive_data:
+  sbt_cache:
+  ivy_cache:
+  coursier_cache:

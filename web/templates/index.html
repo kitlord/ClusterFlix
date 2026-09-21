@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Top 10 movie recommendations</h1>
+<p class="muted">Predicted by an ALS model (Spark MLlib) trained on MovieLens ratings.</p>
+
+<form class="selector" method="get" action="/">
+  <label for="user_id">User:</label>
+  <select id="user_id" name="user_id">
+    {% for uid in user_ids %}
+    <option value="{{ uid }}" {% if uid == selected %}selected{% endif %}>User {{ uid }}</option>
+    {% endfor %}
+  </select>
+  <button type="submit">Show recommendations</button>
+</form>
+
+{% if recs %}
+<table>
+  <tr><th>#</th><th>Title</th><th>Genres</th><th class="num">Predicted rating</th></tr>
+  {% for r in recs %}
+  <tr>
+    <td>{{ loop.index }}</td>
+    <td>{{ r.title or "(unknown title)" }}</td>
+    <td>{{ (r.genres or "").replace("|", ", ") }}</td>
+    <td class="num">{{ "%.2f"|format(r.predictedRating) }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% elif user_ids %}
+<p>No recommendations stored for this user.</p>
+{% else %}
+<p class="muted">No recommendations yet &mdash; run <code>make train</code> first.</p>
+{% endif %}
+{% endblock %}
