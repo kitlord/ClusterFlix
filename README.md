@@ -5,18 +5,21 @@ Everything runs on a single laptop with **Docker Compose** - the host only needs
 **Docker** and **Make**.
 
 ```
-MovieLens ──> HDFS ──> Spark/Scala/MLlib (ALS) ──> MongoDB <── Flask UI
-                          │                                          ↑
-                          └──> Parquet (movie stats in HDFS)         │
-                                     └──> Hive ──> ./report/*.csv ───┘
+MovieLens ──> HDFS ──┬──> Spark/Scala/MLlib (ALS) ──> MongoDB <── Flask UI
+                     │                 │                             ↑
+                     │                 └──> Parquet (movie stats     │
+                     │                      back into HDFS)          │
+                     │                                               │
+                     └──> Hive (external tables over the raw CSVs)   │
+                                      └──> ./report/*.csv ───────────┘
 ```
 
 | Stage      | Technology |
 |------------|------------|
-| Storage    | HDFS 3.3.6 (1 NameNode + 1 DataNode) |
+| Storage    | HDFS 3.3.6 (1 NameNode + 1 DataNode) - raw CSVs + Parquet movie stats |
 | Processing | Apache Spark 3.5.1 standalone (Scala 2.12), MLlib ALS |
-| Serving    | MongoDB 7 (recommendations), HDFS Parquet (movie stats) |
-| Analytics  | Hive 3.1.3 (external tables over the CSVs in HDFS) |
+| Serving    | MongoDB 7 (`recommendations` + `catalog` collections) |
+| Analytics  | Hive 3.1.3 (external tables over the raw CSVs in HDFS) |
 | Web UI     | Python 3.12 / Flask (user dropdown + recommendations + reports) |
 
 Dataset: [MovieLens ml-latest-small](https://grouplens.org/datasets/movielens/latest/)
@@ -41,8 +44,9 @@ recommended movies; <http://localhost:5000/reports> shows the Hive reports.
    the CSVs into HDFS (`/data/raw/...`)
 2. **train** - compile the Scala job with sbt (in a container), submit it to
    Spark: trains ALS, prints test RMSE, writes top-10 recommendations per user
-   to MongoDB (`cinematch.recommendations`) and per-movie stats as Parquet to
-   HDFS (`/data/processed/movie_stats`)
+   to MongoDB (`cinematch.recommendations`), the 50 most-rated movies to
+   MongoDB (`cinematch.catalog`), and per-movie stats as Parquet to HDFS
+   (`/data/processed/movie_stats`)
 3. **report** - create Hive external tables over the raw CSVs and export three
    reports to `./report/` (most-rated movies, average rating by genre, rating
    distribution)
@@ -104,8 +108,10 @@ MongoDB is only reachable inside the Compose network (`mongo:27017`).
 1. reads `ratings.csv` from HDFS, splits 80/20 (`seed = 42`)
 2. trains `ALS` (MLlib), evaluates test **RMSE** and stores it in
    HDFS `/output/rmse` (also copied to `./report/rmse.txt`)
-3. `recommendForAllUsers(10)`, joined with titles/genres, written to
-   MongoDB as one document per user:
+3. scores every user x movie pair with the fitted model, drops the films a
+   user has already rated (`left_anti` against the rating history) and keeps
+   each user's top 10 by predicted rating, joined with titles/genres, written
+   to MongoDB as one document per user:
    `{ userId, ratedCount, topGenres, highRated, recommendations: [...] }`
    (`ratedCount` / `topGenres` / `highRated` = the user's rating history,
    shown in the web UI as proof of why the suggestions fit)
@@ -114,7 +120,12 @@ MongoDB is only reachable inside the Compose network (`mongo:27017`).
    `make train` (newest rating wins, already-watched movies are never
    recommended again)
 5. per-movie `numRatings` / `avgRating` stats written as Parquet to
-   `/data/processed/movie_stats`
+   `/data/processed/movie_stats`. This is a standalone analytics output -
+   nothing else in the stack reads it back; the web UI gets its movie list
+   from step 6 instead.
+6. the 50 most-rated movies written to MongoDB `cinematch.catalog`, which is
+   what the web UI offers as watchable titles to a user who has no
+   recommendations yet
 
 Hive reads the *same* raw CSVs through external tables (header line skipped,
 `OpenCSVSerde` for the quoted titles) and exports the reports with
