@@ -1,7 +1,9 @@
 {% extends "base.html" %}
 {% block content %}
 <h1>Top 10 movie recommendations</h1>
-<p class="muted">Predicted by an ALS model (Spark MLlib) trained on MovieLens ratings.</p>
+<p class="muted">Predicted using Spark MLlib trained on MovieLens ratings.</p>
+
+{% macro genre_list(g) %}{{ (g or "").replace("|", ", ") }}{% endmacro %}
 
 <form class="selector" method="get" action="/">
   <label for="user_id">User:</label>
@@ -12,6 +14,34 @@
   </select>
   <button type="submit">Show recommendations</button>
 </form>
+<form class="selector" method="post" action="/newuser" style="display:inline">
+  <button type="submit">New user</button>
+</form>
+
+{% if stale %}<p class="stale">Saved rating.</p>{% endif %}
+
+{% if history.rated_count %}
+<p class="muted">
+  This user rated <strong>{{ history.rated_count }}</strong> movies.
+  {% if history.top_genres %}Favourite genres: <strong>{{ history.top_genres|join(", ") }}</strong>.{% endif %}
+</p>
+{% endif %}
+
+<form class="watch" method="post" action="/watch">
+  <input type="hidden" name="user_id" value="{{ selected }}">
+  <label for="movie_id">{{ "Select watched ones" if recs else "Rate any to get recommendations:" }}</label>
+  <select id="movie_id" name="movie_id">
+    {% for m in watch_options %}
+    <option value="{{ m.movieId }}">{{ m.title }}</option>
+    {% endfor %}
+  </select>
+  <select name="rating">
+    {% for v in [5, 4, 3, 2, 1] %}
+    <option value="{{ v }}">{{ v }} star{{ "" if v == 1 else "s" }}</option>
+    {% endfor %}
+  </select>
+  <button type="submit">Mark as watched</button>
+</form>
 
 {% if recs %}
 <table>
@@ -20,14 +50,26 @@
   <tr>
     <td>{{ loop.index }}</td>
     <td>{{ r.title or "(unknown title)" }}</td>
-    <td>{{ (r.genres or "").replace("|", ", ") }}</td>
+    <td>{{ genre_list(r.genres) }}</td>
     <td class="num">{{ "%.2f"|format(r.predictedRating) }}</td>
   </tr>
   {% endfor %}
 </table>
-{% elif user_ids %}
-<p>No recommendations stored for this user.</p>
-{% else %}
-<p class="muted">No recommendations yet &mdash; run <code>make train</code> first.</p>
+{% elif not watch_options %}
+<p class="muted">Rate any to get recommendations</p>
+{% endif %}
+
+{% if history.high_rated %}
+<h2>Highest rated by you</h2>
+<table>
+  <tr><th>Title</th><th>Genres</th><th class="num">User rating</th></tr>
+  {% for m in history.high_rated %}
+  <tr>
+    <td>{{ m.title or "(unknown title)" }}</td>
+    <td>{{ genre_list(m.genres) }}</td>
+    <td class="num">{{ "%.1f"|format(m.userRating) }}</td>
+  </tr>
+  {% endfor %}
+</table>
 {% endif %}
 {% endblock %}

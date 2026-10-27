@@ -1,16 +1,8 @@
 #!/usr/bin/env bash
-# Initialize the Hive metastore, create external tables and export the 3 reports.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 mkdir -p report
-
-# The apache/hive image defaults to the Tez engine (no Tez jars in the CLI),
-# so queries run on MapReduce in local mode. Table locations are full hdfs://
-# URIs, so the session's default filesystem stays on the local FS - that is
-# what makes INSERT OVERWRITE LOCAL DIRECTORY write to /report.
-# HADOOP_CLIENT_OPTS raises the CLI JVM heap: the default ~256m OOMs in the
-# ORDER BY stage even on this small dataset.
 HIVE_ARGS="--hiveconf hive.execution.engine=mr --hiveconf hive.exec.mode.local.auto=true"
 HIVE_ENV="HADOOP_CLIENT_OPTS=-Xmx1536m"
 

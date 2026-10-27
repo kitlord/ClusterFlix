@@ -1,15 +1,22 @@
 COMPOSE := docker compose
 
 .DEFAULT_GOAL := help
-.PHONY: setup train report serve check all down logs clean help
+.PHONY: setup train report serve all down logs clean help
 
 ## setup: Download MovieLens, build images, start infrastructure, load HDFS
 setup:
-	bash scripts/setup.sh
+	mkdir -p data report
+	[ -f data/ratings.csv ] || { curl -fL --retry 3 -o /tmp/ml-latest-small.zip https://files.grouplens.org/datasets/movielens/ml-latest-small.zip && unzip -o -q /tmp/ml-latest-small.zip -d /tmp/ml-extract && mv /tmp/ml-extract/ml-latest-small/ratings.csv /tmp/ml-extract/ml-latest-small/movies.csv data/ && rm -rf /tmp/ml-extract /tmp/ml-latest-small.zip; }
+	$(COMPOSE) build scala-build web
+	$(COMPOSE) up -d namenode datanode mongo spark-master spark-worker
+	bash scripts/wait_hdfs.sh
+	$(COMPOSE) exec -T namenode hdfs dfs -mkdir -p /data/raw/ratings /data/raw/movies
+	$(COMPOSE) exec -T namenode hdfs dfs -put -f /data/ratings.csv /data/raw/ratings/ratings.csv
+	$(COMPOSE) exec -T namenode hdfs dfs -put -f /data/movies.csv /data/raw/movies/movies.csv
 
 ## train: Build the Scala job, train ALS with Spark/MLlib, write MongoDB + Parquet
 train:
-	bash scripts/build.sh
+	$(COMPOSE) run --rm scala-build
 	bash scripts/train.sh
 
 ## report: Create Hive external tables and export the 3 reports to ./report
@@ -18,11 +25,7 @@ report:
 
 ## serve: Start the Flask web app on http://localhost:5000
 serve:
-	bash scripts/serve.sh
-
-## check: Verify HDFS data, RMSE, MongoDB recommendations, Hive reports, Flask
-check:
-	bash scripts/check.sh
+	$(COMPOSE) up -d web
 
 ## all: setup + train + report + serve (the full pipeline)
 all: setup train report serve
@@ -38,7 +41,7 @@ logs:
 ## clean: Stop everything and delete containers, volumes, dataset, reports, build output
 clean:
 	$(COMPOSE) down -v --remove-orphans
-	rm -rf data report spark/target
+	rm -rf data report spark/target spark/lib
 
 help:
 	@echo "CineMatch - MovieLens recommender (HDFS / Spark / Hive / MongoDB / Flask)"

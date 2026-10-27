@@ -1,10 +1,5 @@
-# dataset (downloaded by make setup - never commit)
 data/
-
-# generated output
 report/
-
-# Scala build output
 spark/target/
 spark/lib/
 spark/project/target/
@@ -12,7 +7,5 @@ spark/project/project/
 spark/.bloop/
 spark/.scala-build/
 spark/.metals/
-
-# misc
 .DS_Store
 *.log

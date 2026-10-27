@@ -56,7 +56,6 @@ recommended movies; <http://localhost:5000/reports> shows the Hive reports.
 | `make train`  | Build the Scala job, train ALS, write MongoDB + Parquet |
 | `make report` | Create Hive tables, export the 3 reports to `./report/` |
 | `make serve`  | Start the Flask web app on :5000 |
-| `make check`  | Verify HDFS data, RMSE, MongoDB docs, report files, HTTP 200 |
 | `make all`    | setup + train + report + serve |
 | `make down`   | Stop all containers (data volumes are kept) |
 | `make logs`   | Tail all container logs |
@@ -78,7 +77,7 @@ hive/
   reports/*.hql           the three analytical reports
 web/
   Dockerfile, app.py, templates/    Flask UI
-scripts/                  setup / load / build / train / report / check
+scripts/                  train / report (wait_hdfs helper)
 Makefile
 ```
 
@@ -107,8 +106,14 @@ MongoDB is only reachable inside the Compose network (`mongo:27017`).
    HDFS `/output/rmse` (also copied to `./report/rmse.txt`)
 3. `recommendForAllUsers(10)`, joined with titles/genres, written to
    MongoDB as one document per user:
-   `{ userId, recommendations: [{ movieId, title, genres, predictedRating }] }`
-4. per-movie `numRatings` / `avgRating` stats written as Parquet to
+   `{ userId, ratedCount, topGenres, highRated, recommendations: [...] }`
+   (`ratedCount` / `topGenres` / `highRated` = the user's rating history,
+   shown in the web UI as proof of why the suggestions fit)
+4. feedback loop: movies marked as *watched* in the web app are stored in the
+   MongoDB `user_ratings` collection and merged into training on the next
+   `make train` (newest rating wins, already-watched movies are never
+   recommended again)
+5. per-movie `numRatings` / `avgRating` stats written as Parquet to
    `/data/processed/movie_stats`
 
 Hive reads the *same* raw CSVs through external tables (header line skipped,
